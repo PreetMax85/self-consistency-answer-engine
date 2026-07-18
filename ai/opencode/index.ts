@@ -38,5 +38,12 @@ export const runOpenCodeZen = async (
   }
 
   const data = await response.json()
-  return data.choices?.[0]?.message?.content || ""
+  const content = data.choices?.[0]?.message?.content
+
+  if (!content) {
+    console.error("OpenCode Zen returned empty content. Full response:", JSON.stringify(data))
+    throw new Error("OpenCode Zen returned an empty response")
+  }
+
+  return content
 }
