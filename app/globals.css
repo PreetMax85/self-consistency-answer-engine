@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Custom styles for rendered Markdown tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+  font-size: 0.925rem;
+  text-align: left;
+}
+
+th {
+  font-weight: 600;
+  padding: 0.75rem 1rem;
+  border-bottom: 2px solid #e4e4e7; /* zinc-200 */
+  color: #18181b; /* zinc-900 */
+}
+
+td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e4e4e7; /* zinc-200 */
+  color: #3f3f46; /* zinc-700 */
+  vertical-align: top;
+}
+
+tr:nth-child(even) {
+  background-color: #f9f9fb; /* slight off-white */
+}
+
+/* Dark mode overrides */
+@media (prefers-color-scheme: dark) {
+  th {
+    border-bottom: 2px solid #27272a; /* zinc-800 */
+    color: #f4f4f5; /* zinc-100 */
+  }
+  td {
+    border-bottom: 1px solid #27272a; /* zinc-800 */
+    color: #d4d4d8; /* zinc-300 */
+  }
+  tr:nth-child(even) {
+    background-color: rgba(255, 255, 255, 0.02);
+  }
+}
+
+/* Custom styles for Code blocks (Markdown) */
+pre {
+  background-color: #18181b; /* zinc-900 */
+  border: 1px solid #27272a; /* zinc-800 */
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  margin: 1.25rem 0;
+}
+
+code {
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85em;
+  color: #f4f4f5; /* zinc-100 */
+  background-color: rgba(255, 255, 255, 0.07);
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.375rem;
+}
+
+pre code {
+  padding: 0;
+  background-color: transparent;
+  border-radius: 0;
+  font-size: 0.875rem;
+  color: #e4e4e7; /* zinc-200 */
+  display: block;
+}
+
+/* In light mode, adjust inline code background slightly */
+@media (prefers-color-scheme: light) {
+  code {
+    color: #18181b; /* zinc-900 */
+    background-color: rgba(0, 0, 0, 0.05);
+  }
+  pre code {
+    color: #e4e4e7; /* keep pre code light because pre background is dark */
+  }
+}
+
+
