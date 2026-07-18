@@ -1,9 +1,0 @@
-{
-  "scanned": "2026-07-18",
-  "fontStack": "Plus Jakarta Sans + JetBrains Mono (next/font, layout.tsx)",
-  "palette": "OKLCH custom properties (app/globals.css :root)",
-  "motion": "motion-cut (no framer-motion / motion / gsap detected)",
-  "spacing": "Custom --space-* scale (4pt base, app/globals.css)",
-  "framework": "Next.js 16 (app router)",
-  "notes": "Hallmark will preserve: font stack, palette, spacing scale. Hallmark will introduce: macrostructure, microinteraction discipline, slop-test gates, hero enrichment recipe."
-}

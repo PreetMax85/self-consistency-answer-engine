@@ -27,21 +27,19 @@ export async function POST(req: NextRequest) {
         const systemPrompt = `You are an expert editor. Merge the strongest, factual parts of the supplied drafts into one direct answer. Resolve contradictions using sound reasoning. Do not mention models, drafts, or evaluation. Use clear Markdown only when it improves readability. Keep the final answer under 300 words.`;
 
         // 3. Format the evaluation prompt containing the responses
-        const evaluationPrompt = `
-                User Prompt: "${prompt}"
+        const evaluationPrompt = `User Prompt: "${prompt}"
 
-                AI Model Responses to synthesize:
-                ---
-                Response 1:
-                ${geminiResponse?.slice(0, 1800)}
-                ---
-                Response 2:
-                ${groqResponse?.slice(0, 1800)}
-                ---
-                Response 3:
-                ${deepseekResponse?.slice(0, 1800)}
-                ---
-                        `;
+AI Model Responses to synthesize:
+---
+Response 1:
+${geminiResponse?.slice(0, 1800)}
+---
+Response 2:
+${groqResponse?.slice(0, 1800)}
+---
+Response 3:
+${deepseekResponse?.slice(0, 1800)}
+---`;
 
         // 4. Generate the final refined response
         const finalResponse = await runGroqTest(evaluationPrompt, systemPrompt);

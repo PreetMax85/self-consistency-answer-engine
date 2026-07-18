@@ -1,12 +1,12 @@
-import { getGroqClient } from "../config";
 
+import type { ChatCompletionMessageParam } from "groq-sdk/resources/chat/completions";
+import { getGroqClient } from "../config";
 
 export const runGroqTest = async (prompt: string, systemPrompt?: string) => {
     try {
         const client = getGroqClient();
-        console.log("Groq client initialized successfully.");
 
-        const messages: any[] = [];
+        const messages: ChatCompletionMessageParam[] = [];
         if (systemPrompt) {
             messages.push({
                 role: "system",
@@ -19,14 +19,12 @@ export const runGroqTest = async (prompt: string, systemPrompt?: string) => {
         });
 
         const chatResponse = await client.chat.completions.create({
-            messages: messages,
+            messages,
             model: "openai/gpt-oss-20b",
             max_completion_tokens: 400,
         });
 
-        const content = chatResponse.choices[0]?.message?.content || "";
-        console.log('Groq Chat Response:', content ?? 'No content returned');
-        return content;
+        return chatResponse.choices[0]?.message?.content || "";
     } catch (error) {
         console.error("Error executing Groq chat:", error);
         throw error;

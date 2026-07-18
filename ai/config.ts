@@ -1,9 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
 import Groq from "groq-sdk";
-import dotenv from 'dotenv';
-
-dotenv.config();
-
 
 export const getRequiredEnv = (key: string): string => {
   const value = process.env[key];

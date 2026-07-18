@@ -1,71 +1,103 @@
-# Self-Consistency AI Agent App
+# Self-Consistency Answer Engine
 
-A Next.js web application implementing the **self-consistency technique** to generate accurate, high-quality, and synthesized responses using multiple LLM providers.
-
-## Live Deployment & Code Links
-* **GitHub Repository:** [github.com/babitakry/self-consistency-answer-engine](https://github.com/babitakry/self-consistency-answer-engine.git)
-* **Application Type:** **UI-based Web App** (Next.js App Router + React + Tailwind CSS)
-
----
+A Next.js app that queries multiple AI models in parallel, then synthesizes the best parts of each response into one refined answer using the **self-consistency technique**.
 
 ## How It Works
 
-1. **User Input:** The user enters a question or prompt in the clean input interface.
-2. **Parallel Model Execution:** The system sends the prompt to three different AI models simultaneously.
-3. **Consensus & Evaluation:** The individual model responses are compiled and sent to a final evaluator model.
-4. **Synthesis:** The evaluator analyzes the responses, compares what each model got right, extracts the most accurate details, corrects inaccuracies, and writes a unified, refined response.
-5. **Output:** The user is presented with the final synthesized answer, with an optional expandable accordion to inspect and compare the raw responses from each model.
+```
+User Question
+     │
+     ├──→  Gemini (gemini-3.1-flash-lite)    ─┐
+     ├──→  Groq   (openai/gpt-oss-20b)       ─┼──→  Evaluator (Groq)  ──→  Final Answer
+     └──→  OpenCode Zen (deepseek-v4-flash-free) ─┘
+```
 
----
+1. You type a question.
+2. Three AI models answer it at the same time (`Promise.all`).
+3. An evaluator model (Groq) reads all three responses, resolves contradictions, and merges them into one clear answer.
+4. You see the synthesized result — with the option to expand and compare the raw responses side-by-side.
 
-## Models and Providers Used
+## Tech Stack
 
-| Model Role | Provider | API SDK | Model Name |
-| :--- | :--- | :--- | :--- |
-| **Generator** | Google Gemini | `@google/genai` | `gemini-3.1-flash-lite` |
-| **Generator** | Groq | `groq-sdk` | `openai/gpt-oss-20b` |
-| **Generator** | OpenCode Zen | `fetch` (OpenAI-compatible) | `deepseek-v4-flash-free` |
-| **Evaluator / Synthesizer** | OpenCode Zen | `fetch` (OpenAI-compatible) | `nemotron-3-ultra-free` |
+| Layer | Tech |
+|---|---|
+| Framework | Next.js 16 (App Router) |
+| Language | TypeScript |
+| Styling | Tailwind CSS 4 |
+| Markdown | react-markdown + remark-gfm + rehype-highlight + rehype-katex |
+| AI Providers | Google Gemini (`@google/genai`), Groq (`groq-sdk`), OpenCode Zen (fetch) |
 
----
+## Models
 
-## Self-Consistency Flow Implementation
+| Role | Provider | Model ID |
+|---|---|---|
+| Generator | Google Gemini | `gemini-3.1-flash-lite` |
+| Generator | Groq | `openai/gpt-oss-20b` |
+| Generator | OpenCode Zen | `deepseek-v4-flash-free` |
+| Evaluator | Groq | `openai/gpt-oss-20b` |
 
-The backend logic is orchestrated in [app/api/chat/route.ts](app/api/chat/route.ts):
+## Project Structure
 
-1. **Input Stage:** Validates the prompt (rejects empty prompts and prompts over 2000 characters) and applies a shared system instruction to all models:
-   > *"Your response must be short, concise, direct, and to the point. Avoid extra conversational filler or fluff."*
-2. **Execution Stage:** Dispatches concurrent API requests using JavaScript's `Promise.all` to fetch responses from Gemini, Groq, and DeepSeek (via OpenCode Zen) in parallel.
-3. **Evaluation Stage:** Constructs an evaluation payload containing the original user prompt and the three raw model responses.
-4. **Synthesis Stage:** Calls Nemotron (via OpenCode Zen) with a specialized evaluator system instruction:
-   * Compares the three responses, noting which model got which parts right.
-   * Resolves contradictions and merges content into a unified explanation without mentioning specific model names.
-   * Reformats structured items (Markdown tables, lists, code snippets).
-5. **Formatting Stage:** The frontend page ([app/page.tsx](app/page.tsx)) uses `react-markdown` along with:
-   * `rehype-katex` & `remark-math` with KaTeX style sheet to format mathematical equations (e.g. $E=mc^2$).
-   * `rehype-highlight` for syntax highlighting (in standard code blocks).
-
----
+```
+├── app/
+│   ├── api/chat/route.ts   # API route — orchestrates parallel calls + evaluation
+│   ├── page.tsx             # Frontend — input, results, raw perspective viewer
+│   ├── layout.tsx           # Root layout with fonts + metadata
+│   └── globals.css          # Design system (OKLCH palette, components, animations)
+├── ai/
+│   ├── config.ts            # Shared env helpers + Gemini/Groq client singletons
+│   ├── gemini/index.ts      # Gemini provider
+│   ├── groq/index.ts        # Groq provider
+│   └── opencode/index.ts    # OpenCode Zen provider (raw fetch)
+```
 
 ## Getting Started
 
 ### Prerequisites
-Make sure you have Node.js / Bun installed and your API keys set up.
 
-### Environment Setup
-Create a `.env` file in the root directory:
+- Node.js 20+ (or Bun)
+- API keys for Gemini, Groq, and OpenCode Zen
+
+### Setup
+
+```bash
+# Clone the repo
+git clone https://github.com/yourusername/self-consistency-answer-engine.git
+cd self-consistency-answer-engine
+
+# Install dependencies
+npm install
+
+# Create your .env file
+cp .env.example .env
+# Then fill in your API keys
+```
+
+### Environment Variables
+
 ```env
 GEMINI_API_KEY=your_gemini_api_key
 GROQ_API_KEY=your_groq_api_key
 OPENCODE_API_KEY=your_opencode_zen_api_key
 ```
 
-### Running Locally
-```bash
-# Install dependencies
-bun install
+### Run
 
-# Run the development server
-bun run dev
+```bash
+npm run dev
 ```
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+Open [http://localhost:3000](http://localhost:3000).
+
+## Self-Consistency Flow (Backend)
+
+The core logic lives in [`app/api/chat/route.ts`](app/api/chat/route.ts):
+
+1. **Validate** — rejects empty prompts and prompts over 2000 characters.
+2. **Dispatch** — sends the prompt to Gemini, Groq, and DeepSeek (via OpenCode Zen) in parallel with a shared system instruction.
+3. **Evaluate** — compiles the three responses and sends them to the Groq evaluator with instructions to merge, resolve contradictions, and produce a unified answer.
+4. **Return** — sends back the final synthesized answer plus the three raw responses.
+
+## License
+
+MIT
