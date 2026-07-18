@@ -1,8 +1,6 @@
-import { Mistral } from '@mistralai/mistralai';
 import { GoogleGenAI } from '@google/genai';
 import Groq from "groq-sdk";
 import dotenv from 'dotenv';
-import path from 'path';
 
 dotenv.config();
 
@@ -13,17 +11,6 @@ export const getRequiredEnv = (key: string): string => {
     throw new Error(`Environment variable ${key} is missing. Please set it in your .env file.`);
   }
   return value;
-};
-
-// Lazy or singleton client instances
-let mistralClient: Mistral | null = null;
-
-export const getMistralClient = (): Mistral => {
-  if (!mistralClient) {
-    const apiKey = getRequiredEnv('MISTRAL_API_KEY');
-    mistralClient = new Mistral({ apiKey });
-  }
-  return mistralClient;
 };
 
 
@@ -47,4 +34,3 @@ export const getGroqClient = (): Groq => {
   }
   return groqClient;
 };
-

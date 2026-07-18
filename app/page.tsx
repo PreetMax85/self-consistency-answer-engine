@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeKatex from 'rehype-katex'
@@ -9,181 +9,799 @@ import 'katex/dist/katex.min.css'
 import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github-dark.css'
 
+type PerspectiveKey = 'gemini' | 'groq' | 'deepseek'
+
+interface Results {
+  gemini?: string
+  groq?: string
+  deepseek?: string
+  finalAnswer?: string
+}
+
+type Stage = 'idle' | 'receiving' | 'analyzing' | 'synthesizing' | 'done'
+
+const STAGES: { key: Stage; label: string }[] = [
+  { key: 'receiving', label: 'Receiving perspectives' },
+  { key: 'analyzing', label: 'Comparing responses' },
+  { key: 'synthesizing', label: 'Building final answer' },
+]
+
+const PERSPECTIVE_LABELS: Record<PerspectiveKey, { label: string; accent: string }> = {
+  gemini: { label: 'Perspective A', accent: 'pear' },
+  groq: { label: 'Perspective B', accent: 'cyan' },
+  deepseek: { label: 'Perspective C', accent: 'coral' },
+}
+
+const PERSPECTIVE_ORDER: PerspectiveKey[] = ['gemini', 'groq', 'deepseek']
+
 const preprocessLaTeX = (content: string) => {
-  if (!content) return "";
+  if (!content) return ""
   return content
     .replace(/\\\[/g, '$$$$')
     .replace(/\\\]/g, '$$$$')
     .replace(/\\\(/g, '$$')
     .replace(/\\\)/g, '$$');
-};
-
+}
 
 export default function Home() {
-  const [prompt, setPrompt] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [results, setResults] = useState<{
-    gemini?: string;
-    groq?: string;
-    mistral?: string;
-    finalAnswer?: string;
-  } | null>(null);
+  const [prompt, setPrompt] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [results, setResults] = useState<Results | null>(null)
+  const [stage, setStage] = useState<Stage>('idle')
+  const [showRaw, setShowRaw] = useState(false)
+  const [navScrolled, setNavScrolled] = useState(false)
+  const [celebrate, setCelebrate] = useState(false)
+  const textRef = useRef<HTMLTextAreaElement>(null)
+  const answerRef = useRef<HTMLDivElement>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
 
-  const [showRaw, setShowRaw] = useState(false);
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => setNavScrolled(!entry.isIntersecting),
+      { threshold: 0 }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  const runStageSequence = useCallback(async () => {
+    const delays = [800, 600, 1000]
+    for (let i = 0; i < STAGES.length; i++) {
+      await new Promise(r => setTimeout(r, delays[i]))
+      setStage(STAGES[i].key)
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prompt.trim()) return;
+    e.preventDefault()
+    if (!prompt.trim() || loading) return
 
-    setLoading(true);
-    setError("");
-    setResults(null);
+    setLoading(true)
+    setError("")
+    setResults(null)
+    setShowRaw(false)
+    setCelebrate(false)
+    setStage('receiving')
+
+    const stagePromise = runStageSequence()
 
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),
-      });
+      })
 
       if (!response.ok) {
-        throw new Error("Failed to generate response. Please try again.");
+        const errData = await response.json().catch(() => null)
+        throw new Error(errData?.error || "Failed to generate response. Please try again.")
       }
 
-      const data = await response.json();
-      setResults(data);
-    } catch (err: any) {
-      setError(err.message || "An unexpected error occurred.");
+      const data: Results = await response.json()
+      setResults(data)
+      setStage('done')
+      setCelebrate(true)
+      setTimeout(() => setCelebrate(false), 600)
+      if (answerRef.current) {
+        answerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "An unexpected error occurred.")
+      setStage('idle')
     } finally {
-      setLoading(false);
+      await stagePromise
+      setLoading(false)
     }
-  };
+  }
+
+  const getStageIndex = (key: Stage) => STAGES.findIndex(s => s.key === key)
+  const currentStageIndex = getStageIndex(stage)
+
+  const progressPercent = (() => {
+    if (stage === 'idle') return 0
+    if (stage === 'done') return 100
+    return ((currentStageIndex + 0.5) / STAGES.length) * 100
+  })()
 
   return (
-    <main className="max-w-4xl mx-auto px-4 py-12 flex-1 w-full flex flex-col justify-start">
-      {/* Header */}
-      <header className="mb-10 text-center">
-        <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Self-Consistency AI
-        </h1>
-        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-          Compare outputs from Gemini, Groq, and Mistral, synthesized into a single refined answer.
-        </p>
+    <>
+      <header
+        className={`fixed top-0 inset-x-0 z-[var(--z-sticky)] transition-all duration-[240ms] ${
+          navScrolled
+            ? 'is-scrolled'
+            : ''
+        }`}
+        style={{
+          background: navScrolled
+            ? 'color-mix(in oklch, var(--color-paper) 72%, transparent)'
+            : 'transparent',
+          backdropFilter: navScrolled ? 'blur(18px) saturate(160%)' : 'none',
+          WebkitBackdropFilter: navScrolled ? 'blur(18px) saturate(160%)' : 'none',
+          borderBottom: navScrolled ? '1px solid var(--color-rule)' : '1px solid transparent',
+          boxShadow: navScrolled ? '0 8px 28px -18px oklch(0% 0 0 / 0.4)' : 'none',
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 'var(--page-max)',
+            margin: '0 auto',
+            paddingInline: 'var(--page-gutter)',
+            height: navScrolled ? '56px' : '64px',
+            display: 'grid',
+            gridTemplateColumns: '1fr auto 1fr',
+            alignItems: 'center',
+            transition: 'height 240ms',
+          }}
+        >
+          <span
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontWeight: 600,
+              fontSize: '1.05rem',
+              letterSpacing: '-0.02em',
+              justifySelf: 'start',
+              color: 'var(--color-ink)',
+            }}
+          >
+            <span style={{ color: 'var(--color-accent)' }}>●</span>{' '}
+            Self-Consistency
+          </span>
+
+          <nav
+            style={{
+              justifySelf: 'center',
+              display: 'flex',
+              gap: '0.35rem',
+              fontSize: '0.85rem',
+              fontWeight: 500,
+            }}
+            className="max-sm:hidden"
+          >
+            <a
+              href="#"
+              style={{
+                padding: '0.4rem 0.7rem',
+                borderRadius: 'var(--radius-pill)',
+                color: 'var(--color-ink-2)',
+                textDecoration: 'none',
+                transition: 'background 160ms, color 160ms',
+              }}
+              className="hover:bg-[color-mix(in_oklch,var(--color-accent)_10%,transparent)] hover:text-[var(--color-ink)]"
+            >
+              How it works
+            </a>
+            <a
+              href="#"
+              style={{
+                padding: '0.4rem 0.7rem',
+                borderRadius: 'var(--radius-pill)',
+                color: 'var(--color-ink-2)',
+                textDecoration: 'none',
+                transition: 'background 160ms, color 160ms',
+              }}
+              className="hover:bg-[color-mix(in_oklch,var(--color-accent)_10%,transparent)] hover:text-[var(--color-ink)]"
+            >
+              About
+            </a>
+          </nav>
+
+          <div style={{ justifySelf: 'end' }}>
+            <a
+              href="https://github.com/babitakry/self-consistency-answer-engine"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn--soft btn--pear"
+              style={{ padding: '0.4rem 1rem', fontSize: '0.8rem', fontWeight: 500 }}
+            >
+              GitHub
+            </a>
+          </div>
+        </div>
       </header>
 
-      {/* Input Form */}
-      <form onSubmit={handleSubmit} className="mb-8 space-y-4">
-        <div className="relative rounded-lg shadow-sm">
-          <textarea
-            rows={3}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Ask something..."
-            disabled={loading}
-            className="w-full block rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-3 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-60 resize-none text-base transition-all"
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={loading || !prompt.trim()}
-          className="w-full flex items-center justify-center rounded-xl bg-zinc-900 dark:bg-zinc-50 px-4 py-3 text-sm font-semibold text-white dark:text-zinc-950 hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+      <main style={{ flex: 1, paddingTop: '64px' }}>
+        <section
+          style={{
+            padding: 'clamp(2rem, 6vw, 5rem) var(--page-gutter) clamp(2rem, 4vw, 3.5rem)',
+            position: 'relative',
+            overflow: 'hidden',
+          }}
         >
-          {loading ? (
-            <span className="flex items-center gap-2">
-              <svg className="animate-spin h-5 w-5 text-current" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-              </svg>
-              Synthesizing answers...
-            </span>
-          ) : (
-            "Generate Answer"
-          )}
-        </button>
-      </form>
+          <div
+            className="pulse-dot"
+            style={{
+              position: 'absolute',
+              top: 'clamp(2rem, 6vw, 4rem)',
+              right: 'clamp(2rem, 8vw, 6rem)',
+              width: '12px',
+              height: '12px',
+            }}
+          />
 
-      {/* Error Alert */}
-      {error && (
-        <div className="mb-6 rounded-xl bg-red-50 dark:bg-red-950/30 p-4 border border-red-200 dark:border-red-900/50">
-          <p className="text-sm font-medium text-red-800 dark:text-red-300">{error}</p>
-        </div>
-      )}
+          <div className="shell" style={{ position: 'relative', zIndex: 1 }}>
+            <div style={{ maxWidth: '48rem', margin: '0 auto', textAlign: 'center' }}>
+              <span
+                className="mono-label"
+                style={{
+                  display: 'inline-block',
+                  marginBottom: 'var(--space-md)',
+                  color: 'var(--color-accent-2)',
+                  opacity: 1,
+                }}
+              >
+                MULTIPLE AI PERSPECTIVES
+              </span>
 
-      {/* Results */}
-      {results && (
-        <div className="space-y-6 animate-fade-in">
-          {/* Final Refined Answer */}
-          <section className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 p-6 shadow-sm">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-3">
-              Refined Consensus Answer
-            </h2>
-            <div className="prose prose-zinc dark:prose-invert max-w-none text-zinc-800 dark:text-zinc-200 leading-relaxed whitespace-pre-wrap">
+              <h1
+                style={{
+                  fontSize: 'clamp(2.25rem, 5vw + 0.5rem, 4rem)',
+                  fontWeight: 600,
+                  lineHeight: 1.08,
+                  letterSpacing: '-0.03em',
+                  marginBottom: 'var(--space-md)',
+                }}
+              >
+                One{' '}
+                <span
+                  className="hl"
+                  style={{ '--hl': 'color-mix(in oklch, var(--color-accent-2) 55%, transparent)' } as React.CSSProperties}
+                >
+                  refined
+                </span>{' '}
+                answer.
+              </h1>
 
-              <Markdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex, rehypeHighlight]}>{preprocessLaTeX(results.finalAnswer || "")}</Markdown>
+              <p
+                style={{
+                  fontSize: 'clamp(1rem, 2vw, 1.15rem)',
+                  color: 'var(--color-ink-2)',
+                  lineHeight: 1.5,
+                  maxWidth: '36rem',
+                  margin: '0 auto var(--space-xl)',
+                }}
+              >
+                Ask a question. Three different AI models respond. We analyze them all
+                and synthesize the strongest, most accurate answer.
+              </p>
+
+              <form
+                onSubmit={handleSubmit}
+                style={{
+                  maxWidth: '36rem',
+                  margin: '0 auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 'var(--space-md)',
+                  alignItems: 'center',
+                }}
+              >
+                <div
+                  style={{
+                    width: '100%',
+                    background: 'var(--color-paper-2)',
+                    borderRadius: 'var(--radius-card)',
+                    border: '1.5px solid transparent',
+                    transition: 'border-color 200ms',
+                    position: 'relative',
+                  }}
+                  className="focus-within:border-[var(--color-accent-deep)]"
+                >
+                  <textarea
+                    ref={textRef}
+                    rows={2}
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="Ask something…"
+                    disabled={loading}
+                    style={{
+                      width: '100%',
+                      background: 'transparent',
+                      border: 0,
+                      borderRadius: 'var(--radius-card)',
+                      padding: '0.9rem 1.1rem',
+                      color: 'var(--color-ink)',
+                      fontSize: '1rem',
+                      lineHeight: 1.5,
+                      resize: 'none',
+                      outline: 'none',
+                      fontFamily: 'var(--font-body)',
+                    }}
+                    className="placeholder:text-[var(--color-ink-2)] placeholder:opacity-60"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleSubmit(e)
+                      }
+                    }}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading || !prompt.trim()}
+                  className="btn btn--pear"
+                  style={{
+                    alignSelf: 'center',
+                    minWidth: '160px',
+                    fontSize: '0.95rem',
+                    padding: '0.85rem 2rem',
+                  }}
+                >
+                  {loading ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span className="spinner" style={{ width: '18px', height: '18px', borderWidth: '2px' }} />
+                      Working…
+                    </span>
+                  ) : (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                      Generate Answer
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ transition: 'transform 120ms' }}>
+                        <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                  )}
+                </button>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        {loading && (
+          <section
+            className="section--band section--tint-pear"
+            style={{ paddingBlock: 'var(--space-2xl) var(--space-xl)' }}
+          >
+            <div className="shell" style={{ maxWidth: '36rem', textAlign: 'center' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 'var(--space-md)',
+                  marginBottom: 'var(--space-lg)',
+                }}
+              >
+                {STAGES.map((s, i) => {
+                  const isActive = i <= currentStageIndex
+                  const isCurrent = i === currentStageIndex
+                  return (
+                    <div
+                      key={s.key}
+                      className={isCurrent ? 'stage-enter' : ''}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        flex: 1,
+                        opacity: isActive ? 1 : 0.35,
+                        transition: 'opacity 300ms',
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '50%',
+                          background: isActive ? 'var(--color-accent)' : 'var(--color-rule)',
+                          color: isActive ? 'var(--color-ink)' : 'var(--color-ink-2)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.7rem',
+                          fontWeight: 600,
+                          flexShrink: 0,
+                          transition: 'background 300ms',
+                        }}
+                      >
+                        {isCurrent && !isActive ? (
+                          <span className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px', borderTopColor: 'var(--color-accent-deep)' }} />
+                        ) : isActive && i < 2 ? (
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M2.5 6l2.5 2.5 4.5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        ) : (
+                          i + 1
+                        )}
+                      </span>
+                      <span
+                        className="max-sm:hidden"
+                        style={{
+                          fontSize: '0.8rem',
+                          fontWeight: isCurrent ? 600 : 400,
+                          color: 'var(--color-ink-2)',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {s.label}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div
+                style={{
+                  height: '4px',
+                  background: 'var(--color-rule)',
+                  borderRadius: '999px',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${progressPercent}%`,
+                    background: 'linear-gradient(90deg, var(--color-accent), var(--color-accent-2))',
+                    borderRadius: '999px',
+                    transition: 'width 500ms var(--ease-out)',
+                  }}
+                />
+              </div>
             </div>
           </section>
+        )}
 
-          {/* Model Comparison Toggle */}
-          <div className="text-center pt-2">
-            <button
-              type="button"
-              onClick={() => setShowRaw(!showRaw)}
-              className="text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300 transition-colors inline-flex items-center gap-1"
+        {error && (
+          <section style={{ padding: 'var(--space-xl) var(--page-gutter)' }}>
+            <div
+              className="shell"
+              style={{
+                maxWidth: '36rem',
+                background: 'color-mix(in oklch, var(--color-accent-3) 10%, var(--color-paper))',
+                borderRadius: 'var(--radius-card)',
+                padding: 'var(--space-lg)',
+                border: '1px solid color-mix(in oklch, var(--color-accent-3) 30%, transparent)',
+              }}
             >
-              {showRaw ? "Hide Raw Model Responses" : "Compare Raw Model Responses"}
-              <svg
-                className={`h-4 w-4 transform transition-transform ${showRaw ? "rotate-180" : ""}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
+              <p
+                style={{
+                  color: 'var(--color-accent-3-deep)',
+                  fontSize: '0.9rem',
+                  fontWeight: 500,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                }}
               >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Raw Responses Grid */}
-          {showRaw && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-zinc-100 dark:border-zinc-800 animate-slide-down">
-              {/* Gemini */}
-              <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
-                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-blue-500" />
-                  Gemini
-                </h3>
-                <div className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-pre-wrap max-h-96 overflow-y-auto pr-1">
-                  <Markdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex, rehypeHighlight]}>{preprocessLaTeX(results.gemini || "No response received.")}</Markdown>
-                </div>
-              </div>
-
-              {/* Groq */}
-              <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
-                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-orange-500" />
-                  Groq
-                </h3>
-                <div className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-pre-wrap max-h-96 overflow-y-auto pr-1">
-                  <Markdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex, rehypeHighlight]}>{preprocessLaTeX(results.groq || "No response received.")}</Markdown>
-                </div>
-              </div>
-
-              {/* Mistral */}
-              <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
-                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-red-500" />
-                  Mistral
-                </h3>
-                <div className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-pre-wrap max-h-96 overflow-y-auto pr-1">
-                  <Markdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex, rehypeHighlight]}>{preprocessLaTeX(results.mistral || "No response received.")}</Markdown>
-                </div>
-              </div>
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <circle cx="9" cy="9" r="7.5" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M9 5.5v4M9 12v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+                {error}
+              </p>
             </div>
-          )}
+          </section>
+        )}
+
+        {results && results.finalAnswer && (
+          <>
+            <section
+              ref={answerRef}
+              className="section--band section--tint-pear"
+              style={{
+                paddingBlock: 'var(--space-2xl) var(--space-2xl)',
+                position: 'relative',
+              }}
+            >
+              {celebrate && (
+                <div className="star-burst" style={{ top: '30%', left: '50%' }} />
+              )}
+
+              <div className="shell" style={{ maxWidth: '48rem' }}>
+                <span className="mono-label" style={{ marginBottom: 'var(--space-xs)', display: 'block' }}>
+                  SYNTHESIZED ANSWER
+                </span>
+
+                <div
+                  className="card"
+                  style={{
+                    padding: 'clamp(1.5rem, 3vw, 2.5rem)',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    boxShadow: '0 20px 48px -20px oklch(20% 0.012 250 / 0.15)',
+                  }}
+                >
+                  <div
+                    className="prose prose-zinc dark:prose-invert max-w-none leading-relaxed whitespace-pre-wrap"
+                    style={{
+                      fontSize: '1.05rem',
+                      lineHeight: 1.65,
+                      '--tw-prose-body': 'var(--color-ink)',
+                      '--tw-prose-headings': 'var(--color-ink)',
+                      '--tw-prose-links': 'var(--color-accent-2)',
+                      '--tw-prose-bold': 'var(--color-ink)',
+                      '--tw-prose-code': 'var(--color-ink)',
+                      '--tw-prose-pre-bg': 'oklch(20% 0.012 250)',
+                    } as React.CSSProperties}
+                  >
+                    <Markdown
+                      remarkPlugins={[remarkGfm, remarkMath]}
+                      rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                    >
+                      {preprocessLaTeX(results.finalAnswer || "")}
+                    </Markdown>
+                  </div>
+                </div>
+
+                <div style={{ textAlign: 'center', marginTop: 'var(--space-lg)' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowRaw(!showRaw)}
+                    className="btn btn--soft btn--cyan"
+                    style={{ padding: '0.6rem 1.4rem', fontSize: '0.85rem' }}
+                  >
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 14 14"
+                        fill="none"
+                        style={{
+                          transform: showRaw ? 'rotate(180deg)' : 'none',
+                          transition: 'transform 200ms',
+                        }}
+                      >
+                        <path d="M3.5 5.5l3.5 3.5 3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      {showRaw ? 'Hide raw perspectives' : 'Compare raw perspectives'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {showRaw && (
+              <section
+                className="section--band section--tint-cyan"
+                style={{ paddingBlock: 'var(--space-xl) var(--space-2xl)' }}
+              >
+                <div className="shell">
+                  <span className="mono-label" style={{ marginBottom: 'var(--space-lg)', display: 'block' }}>
+                    RAW PERSPECTIVES
+                  </span>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                      gap: 'var(--space-lg)',
+                    }}
+                  >
+                    {PERSPECTIVE_ORDER.map((key, i) => {
+                      const content = results[key]
+                      const info = PERSPECTIVE_LABELS[key]
+                      return (
+                        <div
+                          key={key}
+                          className={`card card--tint-${info.accent}`}
+                          style={{
+                            padding: 'var(--space-lg)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 'var(--space-sm)',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              marginBottom: 'var(--space-xs)',
+                            }}
+                          >
+                            <h3
+                              style={{
+                                fontSize: '0.85rem',
+                                fontWeight: 600,
+                                letterSpacing: '-0.01em',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.4rem',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: '8px',
+                                  height: '8px',
+                                  borderRadius: '50%',
+                                  background: info.accent === 'pear' ? 'var(--color-accent)' : info.accent === 'cyan' ? 'var(--color-accent-2)' : 'var(--color-accent-3)',
+                                  display: 'inline-block',
+                                }}
+                              />
+                              {info.label}
+                            </h3>
+                            <span className="mono-label" style={{ opacity: 0.5 }}>
+                              {String.fromCharCode(65 + i)}
+                            </span>
+                          </div>
+
+                          <div
+                            className="prose prose-zinc dark:prose-invert max-w-none text-sm leading-relaxed whitespace-pre-wrap"
+                            style={{
+                              fontSize: '0.85rem',
+                              lineHeight: 1.6,
+                              color: 'var(--color-ink-2)',
+                              maxHeight: '320px',
+                              overflowY: 'auto',
+                              paddingRight: '0.25rem',
+                              '--tw-prose-body': 'var(--color-ink-2)',
+                              '--tw-prose-headings': 'var(--color-ink)',
+                              '--tw-prose-links': 'var(--color-accent-2)',
+                            } as React.CSSProperties}
+                          >
+                            <Markdown
+                              remarkPlugins={[remarkGfm, remarkMath]}
+                              rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                            >
+                              {preprocessLaTeX(content || "*No response received.*")}
+                            </Markdown>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </section>
+            )}
+          </>
+        )}
+
+        {!loading && !results && (
+          <section
+            className="section--band section--tint-cyan"
+            style={{ paddingBlock: 'var(--space-2xl) var(--space-2xl)' }}
+          >
+            <div className="shell" style={{ maxWidth: '48rem', textAlign: 'center' }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                  gap: 'var(--space-lg)',
+                  marginBottom: 'var(--space-xl)',
+                }}
+              >
+                <div className="card card--tint-pear" style={{ padding: 'var(--space-lg)', textAlign: 'left' }}>
+                  <span className="mono-label" style={{ marginBottom: 'var(--space-xs)', display: 'block', color: 'var(--color-accent)', opacity: 1 }}>
+                    STEP 01
+                  </span>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.3rem', letterSpacing: '-0.02em' }}>
+                    Ask
+                  </h3>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--color-ink-2)', lineHeight: 1.5 }}>
+                    Type any question into the prompt above.
+                  </p>
+                </div>
+
+                <div className="card card--tint-cyan" style={{ padding: 'var(--space-lg)', textAlign: 'left' }}>
+                  <span className="mono-label" style={{ marginBottom: 'var(--space-xs)', display: 'block', color: 'var(--color-accent-2)', opacity: 1 }}>
+                    STEP 02
+                  </span>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.3rem', letterSpacing: '-0.02em' }}>
+                    Compare
+                  </h3>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--color-ink-2)', lineHeight: 1.5 }}>
+                    Three models respond in parallel. We analyze what each gets right.
+                  </p>
+                </div>
+
+                <div className="card card--tint-coral" style={{ padding: 'var(--space-lg)', textAlign: 'left' }}>
+                  <span className="mono-label" style={{ marginBottom: 'var(--space-xs)', display: 'block', color: 'var(--color-accent-3)', opacity: 1 }}>
+                    STEP 03
+                  </span>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.3rem', letterSpacing: '-0.02em' }}>
+                    Synthesize
+                  </h3>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--color-ink-2)', lineHeight: 1.5 }}>
+                    We merge the strongest elements into one refined answer.
+                  </p>
+                </div>
+              </div>
+
+              <hr style={{ border: 0, borderTop: '1px dashed var(--color-rule)', marginBottom: 'var(--space-lg)' }} />
+
+              <h2
+                style={{
+                  fontSize: 'clamp(1.25rem, 2.5vw, 1.75rem)',
+                  fontWeight: 600,
+                  letterSpacing: '-0.02em',
+                  marginBottom: '0.5rem',
+                }}
+              >
+                Multiple perspectives,{' '}
+                <span
+                  className="hl hl--cyan"
+                  style={{ '--hl': 'color-mix(in oklch, var(--color-accent-2) 55%, transparent)' } as React.CSSProperties}
+                >
+                  one
+                </span>{' '}
+                truth.
+              </h2>
+              <p
+                style={{
+                  fontSize: '0.9rem',
+                  color: 'var(--color-ink-2)',
+                  maxWidth: '30rem',
+                  margin: '0 auto',
+                  lineHeight: 1.5,
+                }}
+              >
+                No single model is perfect. By combining them, you get the best of each —
+                without the blind spots.
+              </p>
+            </div>
+          </section>
+        )}
+      </main>
+
+      <footer
+        style={{
+          padding: 'var(--space-2xl) var(--page-gutter) var(--space-xl)',
+          display: 'grid',
+          gap: 'var(--space-lg)',
+          borderTop: '1px solid var(--color-rule)',
+        }}
+      >
+        <p
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 'clamp(1.25rem, 3vw, 2rem)',
+            lineHeight: 1.1,
+            letterSpacing: '-0.02em',
+            maxWidth: '28ch',
+            margin: 0,
+          }}
+        >
+          Multiple perspectives, one refined answer.
+        </p>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'baseline',
+            paddingBlockStart: 'var(--space-sm)',
+            borderTop: '1px solid var(--color-rule)',
+            fontSize: '0.8rem',
+            color: 'var(--color-ink-2)',
+          }}
+        >
+          <span
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontWeight: 600,
+              letterSpacing: '-0.02em',
+              color: 'var(--color-ink)',
+            }}
+          >
+            <span style={{ color: 'var(--color-accent)' }}>●</span> Self-Consistency
+          </span>
+          <span>MIT — Open source</span>
         </div>
-      )}
-    </main>
+      </footer>
+
+      <div ref={sentinelRef} style={{ position: 'absolute', top: 64, height: 1, width: '100%' }} />
+    </>
   );
 }
