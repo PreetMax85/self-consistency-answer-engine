@@ -27,6 +27,7 @@ export const runOpenCodeZen = async (
       body: JSON.stringify({
         model: model || "deepseek-v4-flash-free",
         messages,
+        max_tokens: 400,
       }),
     },
   )

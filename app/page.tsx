@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState } from "react";
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeKatex from 'rehype-katex'
@@ -50,30 +50,14 @@ export default function Home() {
   const [results, setResults] = useState<Results | null>(null)
   const [stage, setStage] = useState<Stage>('idle')
   const [showRaw, setShowRaw] = useState(false)
-  const [navScrolled, setNavScrolled] = useState(false)
   const [celebrate, setCelebrate] = useState(false)
-  const textRef = useRef<HTMLTextAreaElement>(null)
-  const answerRef = useRef<HTMLDivElement>(null)
-  const sentinelRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    const el = sentinelRef.current
-    if (!el) return
-    const observer = new IntersectionObserver(
-      ([entry]) => setNavScrolled(!entry.isIntersecting),
-      { threshold: 0 }
+  const startStageSequence = () => {
+    const timers = STAGES.slice(1).map((step, index) =>
+      window.setTimeout(() => setStage(step.key), (index + 1) * 900)
     )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
-
-  const runStageSequence = useCallback(async () => {
-    const delays = [800, 600, 1000]
-    for (let i = 0; i < STAGES.length; i++) {
-      await new Promise(r => setTimeout(r, delays[i]))
-      setStage(STAGES[i].key)
-    }
-  }, [])
+    return () => timers.forEach(window.clearTimeout)
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -86,7 +70,7 @@ export default function Home() {
     setCelebrate(false)
     setStage('receiving')
 
-    const stagePromise = runStageSequence()
+    const cancelStageSequence = startStageSequence()
 
     try {
       const response = await fetch("/api/chat", {
@@ -101,18 +85,16 @@ export default function Home() {
       }
 
       const data: Results = await response.json()
+      cancelStageSequence()
       setResults(data)
       setStage('done')
       setCelebrate(true)
       setTimeout(() => setCelebrate(false), 600)
-      if (answerRef.current) {
-        answerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
     } catch (err: unknown) {
+      cancelStageSequence()
       setError(err instanceof Error ? err.message : "An unexpected error occurred.")
       setStage('idle')
     } finally {
-      await stagePromise
       setLoading(false)
     }
   }
@@ -128,104 +110,10 @@ export default function Home() {
 
   return (
     <>
-      <header
-        className={`fixed top-0 inset-x-0 z-[var(--z-sticky)] transition-all duration-[240ms] ${
-          navScrolled
-            ? 'is-scrolled'
-            : ''
-        }`}
-        style={{
-          background: navScrolled
-            ? 'color-mix(in oklch, var(--color-paper) 72%, transparent)'
-            : 'transparent',
-          backdropFilter: navScrolled ? 'blur(18px) saturate(160%)' : 'none',
-          WebkitBackdropFilter: navScrolled ? 'blur(18px) saturate(160%)' : 'none',
-          borderBottom: navScrolled ? '1px solid var(--color-rule)' : '1px solid transparent',
-          boxShadow: navScrolled ? '0 8px 28px -18px oklch(0% 0 0 / 0.4)' : 'none',
-        }}
-      >
-        <div
-          style={{
-            maxWidth: 'var(--page-max)',
-            margin: '0 auto',
-            paddingInline: 'var(--page-gutter)',
-            height: navScrolled ? '56px' : '64px',
-            display: 'grid',
-            gridTemplateColumns: '1fr auto 1fr',
-            alignItems: 'center',
-            transition: 'height 240ms',
-          }}
-        >
-          <span
-            style={{
-              fontFamily: 'var(--font-display)',
-              fontWeight: 600,
-              fontSize: '1.05rem',
-              letterSpacing: '-0.02em',
-              justifySelf: 'start',
-              color: 'var(--color-ink)',
-            }}
-          >
-            <span style={{ color: 'var(--color-accent)' }}>●</span>{' '}
-            Self-Consistency
-          </span>
-
-          <nav
-            style={{
-              justifySelf: 'center',
-              display: 'flex',
-              gap: '0.35rem',
-              fontSize: '0.85rem',
-              fontWeight: 500,
-            }}
-            className="max-sm:hidden"
-          >
-            <a
-              href="#"
-              style={{
-                padding: '0.4rem 0.7rem',
-                borderRadius: 'var(--radius-pill)',
-                color: 'var(--color-ink-2)',
-                textDecoration: 'none',
-                transition: 'background 160ms, color 160ms',
-              }}
-              className="hover:bg-[color-mix(in_oklch,var(--color-accent)_10%,transparent)] hover:text-[var(--color-ink)]"
-            >
-              How it works
-            </a>
-            <a
-              href="#"
-              style={{
-                padding: '0.4rem 0.7rem',
-                borderRadius: 'var(--radius-pill)',
-                color: 'var(--color-ink-2)',
-                textDecoration: 'none',
-                transition: 'background 160ms, color 160ms',
-              }}
-              className="hover:bg-[color-mix(in_oklch,var(--color-accent)_10%,transparent)] hover:text-[var(--color-ink)]"
-            >
-              About
-            </a>
-          </nav>
-
-          <div style={{ justifySelf: 'end' }}>
-            <a
-              href="https://github.com/babitakry/self-consistency-answer-engine"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn btn--soft btn--pear"
-              style={{ padding: '0.4rem 1rem', fontSize: '0.8rem', fontWeight: 500 }}
-            >
-              GitHub
-            </a>
-          </div>
-        </div>
-      </header>
-
-      <main style={{ flex: 1, paddingTop: '64px' }}>
+      <main style={{ flex: 1 }}>
         <section
           style={{
-            padding: 'clamp(2rem, 6vw, 5rem) var(--page-gutter) clamp(2rem, 4vw, 3.5rem)',
+            padding: 'clamp(1.5rem, 3vw, 2.5rem) var(--page-gutter) var(--space-xl)',
             position: 'relative',
             overflow: 'hidden',
           }}
@@ -234,7 +122,7 @@ export default function Home() {
             className="pulse-dot"
             style={{
               position: 'absolute',
-              top: 'clamp(2rem, 6vw, 4rem)',
+              top: 'clamp(1.5rem, 3vw, 2.5rem)',
               right: 'clamp(2rem, 8vw, 6rem)',
               width: '12px',
               height: '12px',
@@ -257,7 +145,7 @@ export default function Home() {
 
               <h1
                 style={{
-                  fontSize: 'clamp(2.25rem, 5vw + 0.5rem, 4rem)',
+                  fontSize: 'clamp(1.9rem, 3vw + 0.5rem, 3rem)',
                   fontWeight: 600,
                   lineHeight: 1.08,
                   letterSpacing: '-0.03em',
@@ -280,7 +168,7 @@ export default function Home() {
                   color: 'var(--color-ink-2)',
                   lineHeight: 1.5,
                   maxWidth: '36rem',
-                  margin: '0 auto var(--space-xl)',
+                  margin: '0 auto var(--space-lg)',
                 }}
               >
                 Ask a question. Three different AI models respond. We analyze them all
@@ -310,7 +198,6 @@ export default function Home() {
                   className="focus-within:border-[var(--color-accent-deep)]"
                 >
                   <textarea
-                    ref={textRef}
                     rows={2}
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
@@ -499,7 +386,6 @@ export default function Home() {
         {results && results.finalAnswer && (
           <>
             <section
-              ref={answerRef}
               className="section--band section--tint-pear"
               style={{
                 paddingBlock: 'var(--space-2xl) var(--space-2xl)',
@@ -669,139 +555,7 @@ export default function Home() {
           </>
         )}
 
-        {!loading && !results && (
-          <section
-            className="section--band section--tint-cyan"
-            style={{ paddingBlock: 'var(--space-2xl) var(--space-2xl)' }}
-          >
-            <div className="shell" style={{ maxWidth: '48rem', textAlign: 'center' }}>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                  gap: 'var(--space-lg)',
-                  marginBottom: 'var(--space-xl)',
-                }}
-              >
-                <div className="card card--tint-pear" style={{ padding: 'var(--space-lg)', textAlign: 'left' }}>
-                  <span className="mono-label" style={{ marginBottom: 'var(--space-xs)', display: 'block', color: 'var(--color-accent)', opacity: 1 }}>
-                    STEP 01
-                  </span>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.3rem', letterSpacing: '-0.02em' }}>
-                    Ask
-                  </h3>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--color-ink-2)', lineHeight: 1.5 }}>
-                    Type any question into the prompt above.
-                  </p>
-                </div>
-
-                <div className="card card--tint-cyan" style={{ padding: 'var(--space-lg)', textAlign: 'left' }}>
-                  <span className="mono-label" style={{ marginBottom: 'var(--space-xs)', display: 'block', color: 'var(--color-accent-2)', opacity: 1 }}>
-                    STEP 02
-                  </span>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.3rem', letterSpacing: '-0.02em' }}>
-                    Compare
-                  </h3>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--color-ink-2)', lineHeight: 1.5 }}>
-                    Three models respond in parallel. We analyze what each gets right.
-                  </p>
-                </div>
-
-                <div className="card card--tint-coral" style={{ padding: 'var(--space-lg)', textAlign: 'left' }}>
-                  <span className="mono-label" style={{ marginBottom: 'var(--space-xs)', display: 'block', color: 'var(--color-accent-3)', opacity: 1 }}>
-                    STEP 03
-                  </span>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.3rem', letterSpacing: '-0.02em' }}>
-                    Synthesize
-                  </h3>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--color-ink-2)', lineHeight: 1.5 }}>
-                    We merge the strongest elements into one refined answer.
-                  </p>
-                </div>
-              </div>
-
-              <hr style={{ border: 0, borderTop: '1px dashed var(--color-rule)', marginBottom: 'var(--space-lg)' }} />
-
-              <h2
-                style={{
-                  fontSize: 'clamp(1.25rem, 2.5vw, 1.75rem)',
-                  fontWeight: 600,
-                  letterSpacing: '-0.02em',
-                  marginBottom: '0.5rem',
-                }}
-              >
-                Multiple perspectives,{' '}
-                <span
-                  className="hl hl--cyan"
-                  style={{ '--hl': 'color-mix(in oklch, var(--color-accent-2) 55%, transparent)' } as React.CSSProperties}
-                >
-                  one
-                </span>{' '}
-                truth.
-              </h2>
-              <p
-                style={{
-                  fontSize: '0.9rem',
-                  color: 'var(--color-ink-2)',
-                  maxWidth: '30rem',
-                  margin: '0 auto',
-                  lineHeight: 1.5,
-                }}
-              >
-                No single model is perfect. By combining them, you get the best of each —
-                without the blind spots.
-              </p>
-            </div>
-          </section>
-        )}
       </main>
-
-      <footer
-        style={{
-          padding: 'var(--space-2xl) var(--page-gutter) var(--space-xl)',
-          display: 'grid',
-          gap: 'var(--space-lg)',
-          borderTop: '1px solid var(--color-rule)',
-        }}
-      >
-        <p
-          style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 'clamp(1.25rem, 3vw, 2rem)',
-            lineHeight: 1.1,
-            letterSpacing: '-0.02em',
-            maxWidth: '28ch',
-            margin: 0,
-          }}
-        >
-          Multiple perspectives, one refined answer.
-        </p>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'baseline',
-            paddingBlockStart: 'var(--space-sm)',
-            borderTop: '1px solid var(--color-rule)',
-            fontSize: '0.8rem',
-            color: 'var(--color-ink-2)',
-          }}
-        >
-          <span
-            style={{
-              fontFamily: 'var(--font-display)',
-              fontWeight: 600,
-              letterSpacing: '-0.02em',
-              color: 'var(--color-ink)',
-            }}
-          >
-            <span style={{ color: 'var(--color-accent)' }}>●</span> Self-Consistency
-          </span>
-          <span>MIT — Open source</span>
-        </div>
-      </footer>
-
-      <div ref={sentinelRef} style={{ position: 'absolute', top: 64, height: 1, width: '100%' }} />
     </>
   );
 }

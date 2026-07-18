@@ -9,7 +9,10 @@ export const runGeminiTest = async (prompt: string, systemPrompt?: string) => {
         const response = await client.models.generateContent({
             model: 'gemini-3.1-flash-lite',
             contents: prompt,
-            config: systemPrompt ? { systemInstruction: systemPrompt } : undefined,
+            config: {
+                ...(systemPrompt ? { systemInstruction: systemPrompt } : {}),
+                maxOutputTokens: 400,
+            },
         });
         const content = response.text;
         console.log('Gemini Chat Response:', content ?? 'No content returned');

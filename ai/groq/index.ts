@@ -21,6 +21,7 @@ export const runGroqTest = async (prompt: string, systemPrompt?: string) => {
         const chatResponse = await client.chat.completions.create({
             messages: messages,
             model: "openai/gpt-oss-20b",
+            max_completion_tokens: 400,
         });
 
         const content = chatResponse.choices[0]?.message?.content || "";
